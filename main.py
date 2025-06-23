@@ -9,6 +9,7 @@ from Controllers.Cooler            import Cooler
 from Controllers.Pump              import PumpMotor, Pump
 from Controllers.PID_ar            import PID
 from Controllers.TimeAndDate       import TimeAndDate
+from Controllers.Display            import OLED 
 from Network.WiFiManager           import WiFiManager
 from Network.AdafruitIOClient      import AdafruitIOClient
 from config import (
@@ -17,6 +18,9 @@ from config import (
     target_temperature, initial_cooler_mode,
     is_air_initially, mussel_nr
 )
+
+if not os.path.exists('data'):
+    os.mkdir('data')
 
 
 timeAndDate = TimeAndDate(
@@ -28,9 +32,33 @@ timeAndDate = TimeAndDate(
     minutes=40
 )
 
-
-
 is_air = is_air_initially
+
+######## Logging ###########
+DATA_DIR            = 'data'
+CSV_LOG             = f'{DATA_DIR}/data_log.csv'
+TEMP_PID_LOG        = f'{DATA_DIR}/temp_PID_log.csv'
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
+def _init_log(path, header):
+    with open(path, "w") as f:
+        f.write(header + "\n")
+
+_init_log(CSV_LOG,"Time,Actuator,Avg_Temperature,Kp,Ki,Kd,Cooler_Pump_Power")
+_init_log(TEMP_PID_LOG, "Time,Temperature,PID_Values")
+
+######## Screen ###########
+
+oled = OLED(pinScl=22, pinSda=21) # from the screen file
+
+
+def pretty_datetime(): #from chat since i cant test the formatting
+    return "{:02d}-{:02d} {:02d}:{:02d}".format(
+        timeAndDate.day, timeAndDate.month,
+        timeAndDate.hour, timeAndDate.minutes
+    )
+
 
 
 ######## MAIN ###########
@@ -42,16 +70,11 @@ def STOP_program():
 
 
 
-DATA_DIR            = 'data'
-CSV_LOG             = f'{DATA_DIR}/data_log.csv'
-TEMP_PID_LOG        = f'{DATA_DIR}/temp_PID_log.csv'
+
 INTERVAL_ACTIVATION = 60  
 INTERVAL_FEEDING    = 30    # push cadence (in minutes)
 WIFI_RETRY_SECONDS  = 60
 AIO_RETRY_SECONDS   = 60
-
-
-
 
 
 
@@ -90,8 +113,6 @@ def switch_pump(is_air, initial_pump_speed=100):
     pump.set_speed(0)
     time.sleep(1)
 
-    is_air = not is_air
-
     if is_air:
         pumpMotor.moveForward(5) 
         print('[SYS] Switching to Air Pump', end=' ')
@@ -103,7 +124,7 @@ def switch_pump(is_air, initial_pump_speed=100):
 
     print('[SYS] Pump switched ')
     pump.set_speed(initial_pump_speed)
-    return is_air
+    return not is_air ##bug here i fixed
     
 
 def adjustSpeedCoolerPump(outputPID):
@@ -165,20 +186,35 @@ def feed_mussels():
 
     
 
+def time_right_now():
+    return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+        timeAndDate.year, timeAndDate.month, timeAndDate.day,
+        timeAndDate.hour, timeAndDate.minutes, int(time.time() % 60))
 
 
-def write_PID_data():
-    # Basically you just write in the CSV the instructions bellow and also display them
-    # to display check the Display file in Controllers and assume that it exists, I havent imported it yet
-    # ALSO: check line 46-47
-    pass
+def write_PID_data(actuator, avg_temp, pid_obj, pump_power):
+    row = ",".join(map(str, [
+        time_right_now(),
+        round(actuator, 2),
+        round(avg_temp, 2),
+        pid_obj.Kp,
+        pid_obj.Ki,
+        pid_obj.Kd,
+        pump_power
+    ]))
+    with open(CSV_LOG, "a") as f:
+        f.write(row + "\n")
 
 
 
-
-def write_data():
-    # same as in write_PID_data
-    pass
+def write_data(conc, dT):
+    row = ",".join(map(str, [
+        time_right_now(),
+        round(conc, 1),
+        int(dT)
+    ]))
+    with open(TEMP_PID_LOG, "a") as f:
+        f.write(row + "\n")
 
 
 
@@ -221,26 +257,18 @@ while RUN == True:
         print("Avg Temperature: " + str(newTemp))
         print("PID Values: " + PID.overviewParameters)
 
+        oled.display_PID_controls( #From display file
+            temperature = round(newTemp, 1),
+            concentration = round(conc if display_data_counter == 0 else 0, 1),
+            frequency = INTERVAL_FEEDING,          
+            dateAndTime = pretty_datetime()
+        )
+        
+        write_PID_data(actuatorValue, newTemp, PID, cooler_pump_power)
+
         if display_data_counter == 30:
             display_data_counter = 0
             conc, dT = feed_mussels()
-            # HERE you will do write_data(), and write in there these values
-            #  - Time
-            #  - Concentration measured (conc) from OD sensor
-            #  - Time mussels were fed (dT) in seconds
-             
-     
-
-        # HERE you will do write_PID_data() add parameters to it and write in the CSV the following:
-        #  - Time
-        #  - Actuator
-        #  - Average Temperature
-        #  - PID Values
-        #  - Cooler Pump Power
-        # You take these from line 219-222
-
-
-
-        # ALSO: check line 170-181
+            write_data(conc, dT)
 
 stop_system()
