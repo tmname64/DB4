@@ -109,16 +109,22 @@ def switch_pump(is_air, initial_pump_speed=100):
 def adjustSpeedCoolerPump(outputPID):
     if outputPID <= 2:
         cooler.LowPower()
-        pumpCooler.set_speed(1)
+        cooler_pump_power = 1
+        pumpCooler.set_speed(cooler_pump_power)
+
 
     elif outputPID <= 12:
         cooler.HighPower()
-        pumpCooler.set_speed(int(outputPID/12*100))
+        cooler_pump_power = int(outputPID/12*100)
+        pumpCooler.set_speed(cooler_pump_power)
 
     else:
         cooler.fanOn()
         cooler.HighPower()
-        pumpCooler.set_speed(100)
+        cooler_pump_power = 100
+        pumpCooler.set_speed(cooler_pump_power)
+    
+    return cooler_pump_power
 
 
 def compute_feeding_time(OD_measure):
@@ -155,16 +161,23 @@ def feed_mussels():
             switch_pump(is_air)
             break
 
+    return conc, dT
+
     
 
 
 
 def write_PID_data():
+    # Basically you just write in the CSV the instructions bellow and also display them
+    # to display check the Display file in Controllers and assume that it exists, I havent imported it yet
+    # ALSO: check line 46-47
     pass
 
 
 
+
 def write_data():
+    # same as in write_PID_data
     pass
 
 
@@ -200,7 +213,7 @@ while RUN == True:
     
     if utime.ticks_diff(utime.ticks_ms(), timerActivation) >= INTERVAL_ACTIVATION * 1000:
         display_data_counter += 1
-        adjustSpeedCoolerPump(actuatorValue)
+        cooler_pump_power = adjustSpeedCoolerPump(actuatorValue)
         timerActivation = utime.ticks_ms()
 
         print("\n\nTime: " + str(timeAndDate.date_time()))
@@ -210,9 +223,24 @@ while RUN == True:
 
         if display_data_counter == 30:
             display_data_counter = 0
-            feed_mussels()
+            conc, dT = feed_mussels()
+            # HERE you will do write_data(), and write in there these values
+            #  - Time
+            #  - Concentration measured (conc) from OD sensor
+            #  - Time mussels were fed (dT) in seconds
+             
+     
+
+        # HERE you will do write_PID_data() add parameters to it and write in the CSV the following:
+        #  - Time
+        #  - Actuator
+        #  - Average Temperature
+        #  - PID Values
+        #  - Cooler Pump Power
+        # You take these from line 219-222
 
 
 
+        # ALSO: check line 170-181
 
 stop_system()
