@@ -37,7 +37,6 @@ class AdafruitIOClient:
 
     def _mqtt_callback(self, topic: bytes, msg: bytes):
         """Internal dispatcher for incoming messages."""
-        # topic format: <username>/feeds/<feed_name>
         parts = topic.decode().split('/')
         if len(parts) >= 3 and parts[-2] == 'feeds':
             feed = parts[-1]
@@ -48,40 +47,65 @@ class AdafruitIOClient:
                     print(f"Callback error for {feed}:", e)
 
     def publish(self, feed: str, value) -> None:
+        """Publish a value to a specific feed."""
         topic = f"{self.username}/feeds/{feed}".encode()
         payload = str(value).encode()
         self._client.publish(topic, payload)
+        print(f"Published {feed} → {value}")
 
     def subscribe(self, feed: str, callback) -> None:
-        """Subscribe to a feed and register a callback(msg)
-            Callback receives the payload as string"""
+        """Subscribe to a feed and register a callback(msg)."""
         topic = f"{self.username}/feeds/{feed}".encode()
         self._callbacks[feed] = callback
         self._client.subscribe(topic)
+        print(f"Subscribed to feed '{feed}'")
 
     def check_msg(self):
-        """ non-blocking """
-        # must be called frequently in main loop
+        """Non-blocking check for incoming messages."""
         try:
             self._client.check_msg()
         except Exception as e:
             print("Error checking MQTT messages:", e)
 
     def disconnect(self):
+        """Disconnect the MQTT client."""
         try:
             self._client.disconnect()
         except:
             pass
 
+    # ------- Helpful data-sending functions -------
+    def send_system_status(self, running: bool) -> None:
+        """Publish system running status (True/False)."""
+        self.publish('system', int(running))
 
+    def send_temperature(self, temperature: float) -> None:
+        """Publish current temperature reading."""
+        self.publish('temperature', temperature)
 
-### Example usage:
-# wifi = WiFiManager('Mob', 'Moldova1')
-# aio = AdafruitIOClient('your_username', 'your_key', wifi)
-# if aio.connect():
-#     aio.publish('light', 123)
-#     def on_cmd(val): print('Command:', val)
-#     aio.subscribe('command', on_cmd)
-#     while True:
-#         aio.check_msg()
-#         time.sleep(1)
+    def send_od(self, od_value: float) -> None:
+        """Publish optical density (OD) reading."""
+        self.publish('od', od_value)
+
+    def send_pump_status(self, pump1: int, pump2: int = None) -> None:
+        """Publish pump speeds/frequencies for pump1 and optional pump2."""
+        self.publish('pump1', pump1)
+        if pump2 is not None:
+            self.publish('pump2', pump2)
+
+    def send_cooler_status(self, status: str) -> None:
+        """Publish cooler status (e.g., 'ON', 'OFF', 'LOW')."""
+        self.publish('cooler', status)
+
+    def send_concentration(self, concentration: float) -> None:
+        """Publish concentration measurement."""
+        self.publish('concentration', concentration)
+
+    def send_temperature_over_time(self, temp_time: float) -> None:
+        """Publish temperature-over-time data point."""
+        self.publish('temperature-over-time', temp_time)
+
+    def send_bulk(self, data: dict) -> None:
+        """Publish multiple feed values at once. Keys are feed names."""
+        for feed, value in data.items():
+            self.publish(feed, value)

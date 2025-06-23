@@ -1,4 +1,29 @@
 from machine import Pin, PWM
+import time
+
+class LED:
+    def __init__(self, pin_num: int, active_high: bool = True) -> None:
+        self._pin = Pin(pin_num, Pin.OUT)
+        self._active_high = active_high
+        # ensure LED is off at start
+        self.off()
+
+    def on(self) -> None:
+        self._pin.value(1 if self._active_high else 0)
+
+    def off(self) -> None:
+        self._pin.value(0 if self._active_high else 1)
+
+    def toggle(self) -> None:
+        self._pin.value(not self._pin.value())
+
+    def blink(self, on_time: float, off_time: float = None, times: int = 1) -> None:
+        off_time = off_time if off_time is not None else on_time
+        for _ in range(times):
+            self.on()
+            time.sleep(on_time)
+            self.off()
+            time.sleep(off_time)
 
 
 class RGB_LED:

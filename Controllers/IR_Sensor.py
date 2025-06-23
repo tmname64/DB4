@@ -1,92 +1,138 @@
+from math import log10, isclose, log, exp
 from machine import I2C, Pin
 from time import sleep
 import time
 
 
+from config import conc_cal, od_cal
+
+
+class LightMonitor:
+    def __init__(self, sensor, led_pin):
+        self.sensor = sensor
+        self.led = Pin(led_pin, Pin.OUT)
+        self.reference = 130   ### CHANGE LATER
+        self.ODerror = 5       ### CHANGE LATER
+        
+        self.led.value(1)
+
+    def read_intensity(self):
+        ch0, ch1 = self.sensor.read_lux()
+        return ch0
+    
+    def turnOffLED(self):
+        self.led.value(0)
+
+    def turnOnLED(self):
+        self.led.value(0)
+
+    def measureOD(self):
+        OD_vals = []
+
+        wrongMeasureCounter = 0
+
+        oldOD = -1
+        n = 15 # Samples to average on (Note: read_temp() already averages over 50 readings)
+        for i in range(n):
+            intensity = self.readIntensity()
+            rawOD = (log10(intensity / self.reference))
+            if oldOD == -1 or (abs(rawOD - oldOD) < self.ODerror and rawOD != 0):
+                OD_vals.append(rawOD)
+                oldOD = rawOD
+            if abs(rawOD - oldOD) >= self.ODerror:
+                wrongMeasureCounter += 1
+                i -= 1
+
+            if wrongMeasureCounter == 7: ### Wrong measurement check !!!
+                return -1
+            
+            time.sleep(0.1)
+            
+        OD_value = sum(OD_vals)/n - 1
+    
+        return OD_value
+    
+    def measureAccurateOD(self):
+        OD_value = -1
+        while OD_value == -1:
+            OD_value = self.measure_OD()
+        
+        return OD_value
+    
+    def measureConcentration(self):
+        # ---  Fit log(conc) = ln(A) + B*OD  ---------------------------------------
+        # compute means
+        n = len(conc_cal)
+        mean_od     = sum(od_cal) / n
+        mean_lnconc = sum(log(c) for c in conc_cal) / n
+
+        # least-squares slope B and intercept ln(A)
+        num = sum((od_cal[i] - mean_od) * (log(conc_cal[i]) - mean_lnconc) 
+                  for i in range(n)
+              )
+        den = sum((od_cal[i] - mean_od)**2 for i in range(n))
+        B   = num / den
+        lnA = mean_lnconc - B * mean_od
+        A   = exp(lnA)
+
+        
+        # --- Computing concentration ----------------------
+        return A * exp(B * self.measureAccurateOD)
+
+    
+
 
 class DualWavelengthOD:
-    """
-    - sensor: instance with read_lux() -> (ch0, ch1)
-    - vis_pin: GPIO pin for visible LED
-    - ir_pin: GPIO pin for IR LED
-    - blank_reference: reference intensity V0 (set after measuring blank)
-    """
-    def __init__(self, sensor, vis_pin, ir_pin, blank_reference=None, pulse_ms=50):
+    def __init__(self, sensor, uv_pin, scatter_pin, blank_reference=None, pulse_ms=200):
         self.sensor = sensor
-        self.vis_led = Pin(vis_pin, Pin.OUT)
-        self.ir_led  = Pin(ir_pin,  Pin.OUT)
+        self.uv_led = Pin(uv_pin, Pin.OUT)
+        self.scatter_led = Pin(scatter_pin, Pin.OUT)
         self.blank_reference = blank_reference
         self.pulse_ms = pulse_ms
-        # ensure LEDs off
-        self.vis_led.value(0)
-        self.ir_led.value(0)
+        # LEDs off
+        self.uv_led.value(0)
+        self.scatter_led.value(0)
 
-    def _pulse_led(self, led_pin):
-        # turn on, wait, read, then off
-        led_pin.value(1)
+    def _pulse_and_read(self, led: Pin) -> int:
+        led.value(1)
         time.sleep_ms(self.pulse_ms)
-        ch0, ch1 = self.sensor.read_lux()
-        led_pin.value(0)
-        return ch0, ch1
+        ch0, _ = self.sensor.read_lux()      # use channel-0 for UV & scatter
+        led.value(0)
+        return ch0
 
-    def measure_intensities(self):
-        """
-        Performs a dual-wavelength cycle:
-        - visible LED: returns total (T_vis)
-        - IR LED: returns scatter (S_ir)
-        Returns (T_vis, S_ir)
-        """
-        # measure with visible LED
-        t_vis_ch0, t_vis_ch1 = self._pulse_led(self.vis_led)
-        # measure with IR LED
-        s_ir_ch0, s_ir_ch1 = self._pulse_led(self.ir_led)
-        # For visible correction we use:
-        # T_vis = total reading from visible LED channel (we use ch0)
-        # S_ir  = IR-only scattering from IR LED (we use ch1)
-        return t_vis_ch0, s_ir_ch1
+    def measure_intensities(self) -> tuple[int, int]:
+        T_uv = self._pulse_and_read(self.uv_led)
+        time.sleep_ms(50)  # small gap
+        S_vis = self._pulse_and_read(self.scatter_led)
+        return T_uv, S_vis
 
-    def set_blank(self, samples=3):
-        """
-        Measure blank reference intensity V0 (mean over samples).
-        Must be called before compute_od.
-        """
+    def set_blank(self, samples:int=5) -> float:
         vals = []
         for _ in range(samples):
-            t_vis, s_ir = self.measure_intensities()
-            vals.append(t_vis - s_ir)
+            T_uv, S_vis = self.measure_intensities()
+            vals.append(T_uv - S_vis)
             time.sleep_ms(100)
         self.blank_reference = sum(vals) / len(vals)
         return self.blank_reference
 
-    def compute_od(self):
-        """
-        OD = -log10( (T_vis - S_ir) / V0 )
-        Requires blank_reference set.
-        """
-        if self.blank_reference is None:
-            raise RuntimeError("Blank reference not set. Call set_blank() first.")
-        t_vis, s_ir = self.measure_intensities()
-        V = t_vis - s_ir
-        if V <= 0 or self.blank_reference <= 0:
-            return float('inf')
-        return -math.log10(V / self.blank_reference)
+    def _safe_od(self, V: float) -> float:
+        # clamp invalid/negative to 0.0
+        if V <= 0 or not self.blank_reference or self.blank_reference <= 0:
+            return 0.0
+        od = -log10(V / self.blank_reference)
+        # fix “-0.0” → “0.0”
+        return 0.0 if isclose(od, 0.0, abs_tol=1e-6) else od
 
-    def read_all(self):
-        """
-        Returns a dict with:
-           'T_vis', 'S_ir', 'V', 'OD'
-        """
-        t_vis, s_ir = self.measure_intensities()
-        V = t_vis - s_ir
-        od = None
-        if self.blank_reference is not None and V > 0:
-            od = -math.log10(V / self.blank_reference)
+    def read_all(self) -> dict:
+        T_uv, S_vis = self.measure_intensities()
+        Vcorr = T_uv - S_vis
         return {
-            'T_vis': t_vis,
-            'S_ir': s_ir,
-            'V_corrected': V,
-            'OD': od
+            'T_uv':        T_uv,
+            'S_scatter':   S_vis,
+            'V_corrected': Vcorr,
+            'OD':          self._safe_od(Vcorr)
         }
+
 
 ### Example usage ###
 # import machine, time
