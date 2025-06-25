@@ -11,6 +11,7 @@ from Controllers.Pump              import PumpMotor, Pump
 from Controllers.PID_ar            import PID
 from Network.WiFiManager           import WiFiManager
 from Network.AdafruitIOClient      import AdafruitIOClient
+from Controllers.Display import OLED
 from config import (
     WIFI_SSID, WIFI_PASSWORD,
     ADAFRUIT_AIO_USERNAME, ADAFRUIT_AIO_KEY, initial_cooler_mode
@@ -378,70 +379,77 @@ class LightMonitor:
 
 
 
-temperatureSensor = TemperatureSensor(32)
-pumpCooler = Pump(pinDirection=18, pinStep=19, speed=0)
-cooler = Cooler(pinPower=33, pinFan=25)
 
 
 
 print('[SYS] Hardware ready')
 
-target_temperature = 17
-
-def read_temperature(temperatureSensor):
-    temperatures = [] 
-    i = 15 # Samples to average on (Note: read_temp() already averages over 50 readings)
-    for _ in range(i):
-        temperatures.append(temperatureSensor.read_temp())
-    newTemp = sum(temperatures)/i
-    return newTemp
 
 
-def adjustSpeedCoolerPump(outputPID):
-    if outputPID <= 2:
-        cooler.LowPower()
-        cooler_pump_power = 1
-        pumpCooler.set_speed(cooler_pump_power)
+
+# with open('data/PID_data.csv', 'w') as f:
+#     f.write('timestamp_ms,actuator,avg_temp,Kp,Ki,Kd,pump_power\n')
 
 
-    elif outputPID <= 12:
-        cooler.HighPower()
-        cooler_pump_power = int(outputPID/12*100)
-        pumpCooler.set_speed(cooler_pump_power)
+# while RUN:
+#     if utime.ticks_diff(utime.ticks_ms(), timerActivation) >= 10 * 1000:
+#         timerActivation = utime.ticks_ms()
 
-    else:
-        cooler.fanOn()
-        cooler.HighPower()
-        cooler_pump_power = 100
-        pumpCooler.set_speed(cooler_pump_power)
+#         now = utime.ticks_ms()
+
+import machine
     
-    return cooler_pump_power
+# pump = Pump(pinDirection=5, pinStep=17, speed=0)
+# pumpMotor = PumpMotor(4, 16, 50)
+# i2c = machine.I2C(0, scl=Pin(22), sda=Pin(21), freq=100_000)
+# sensor = LTR329(i2c)
+# odSensor = LightMonitor(sensor, led_pin=26)
 
-PID = PID(temperatureSensor.read_temp(), target_temperature) # Terget temperature
-PID.setProportional(8.5)
-PID.setIntegral(3)
-PID.setDerivative(0.5)
+# is_air = True
+         
+# def switch_pump(is_air, initial_pump_speed=100):
+#     pump.set_speed(0)
+#     time.sleep(1)
 
+#     if is_air:
+#         pumpMotor.moveForward(5) 
+#         print('[SYS] Switching to Air Pump', end=' ')
+#     else:
+#         pumpMotor.moveBackward(3)
+#         print('[SYS] Switching to Feed Pump', end=' ')
 
-RUN = True
+#     time.sleep(5)
 
-
-timerActivation = utime.ticks_ms()
-
-while RUN:
-    newTemp = read_temperature(temperatureSensor)
-    actuatorValue = PID.update(newTemp)
+#     print('[SYS] Pump switched ')
+#     pump.set_speed(initial_pump_speed)
+#     return not is_air ##bug here i fixed
     
-    if utime.ticks_diff(utime.ticks_ms(), timerActivation) >= 10 * 1000:
-        cooler_pump_power = adjustSpeedCoolerPump(actuatorValue)
-        timerActivation = utime.ticks_ms()
-
-        # print("\n\nTime: " + str(timeAndDate.date_time()))
-        print("Actuator: " + str(actuatorValue))
-        print("Avg Temperature: " + str(newTemp))
-        print("PID Values: " + PID.overviewParameters)
-        print("Cooler pump power: " + str(cooler_pump_power) )
 
 
+ 
+# pump.set_speed(100)
 
-pumpCooler.set_speed(0)
+# time.sleep(6)
+
+# is_air = switch_pump(is_air, 100)
+
+# time.sleep(8)
+
+# is_air = switch_pump(is_air)
+
+# time.sleep(1)
+
+# pump.set_speed(0) 
+
+
+oled = OLED(pinScl=15, pinSda=13)
+
+
+oled.display_PID_controls( #From display file
+            temperature = round(17.13, 2),
+            concentration = "293k",         
+            dateAndTime = "24 Jun - 20:39",
+            is_air=True
+        )
+
+

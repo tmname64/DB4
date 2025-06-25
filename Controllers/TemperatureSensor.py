@@ -32,7 +32,10 @@ class TemperatureSensor:
         V_meas = (avg_count / ADC_MAX) * ADC_VREF
 
         # 3) Compute thermistor resistance from the divider equation
-        R_th = SER_RES * V_meas / (ADC_VREF - V_meas)
+        if ADC_VREF-V_meas != 0:
+            R_th = SER_RES * V_meas / (ADC_VREF - V_meas)
+        else:
+            R_th = 10
 
         # 4) Steinhart–Hart (Beta) equation, corrected sign:
         T0    = TEMP_NOM + 273.15
