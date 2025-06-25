@@ -25,7 +25,7 @@ timeAndDate = TimeAndDate(
     month=6, 
     day=24, 
     dayOfWeek=2, 
-    hour=15, 
+    hour=12, 
     minutes=40
 )
 
@@ -58,7 +58,7 @@ def STOP_program():
 
  
 
-INTERVAL_ACTIVATION = 60  
+INTERVAL_ACTIVATION = 30  
 INTERVAL_FEEDING    = 30    # push cadence (in minutes)
 WIFI_RETRY_SECONDS  = 10
 AIO_RETRY_SECONDS   = 20
@@ -66,6 +66,7 @@ AIO_RETRY_SECONDS   = 20
 
 
 print('[SYS] Initialising hardware …')
+
 pump                = Pump(pinDirection=5, pinStep=17, speed=0)
 pumpCooler          = Pump(pinDirection=18, pinStep=19, speed=0)
 pumpMotor           = PumpMotor(4, 16, 50)
@@ -75,6 +76,7 @@ odSensor            = LightMonitor(sensor, led_pin=26)
 cooler              = Cooler(pinPower=33, pinFan=25)
 temperatureSensor   = TemperatureSensor(32)
 oled                = OLED(pinScl=15, pinSda=13)
+
 print('[SYS] Hardware ready')
 
 
@@ -167,7 +169,7 @@ def adjustSpeedCoolerPump(outputPID):
         pumpCooler.set_speed(cooler_pump_power)
 
     else:
-        cooler_pump_power = 100
+        cooler.HighPower() ; cooler_pump_power = 100
         pumpCooler.set_speed(cooler_pump_power)
     
     return cooler_pump_power
@@ -186,9 +188,13 @@ def compute_feeding_time(OD_measure):
 
 def feed_mussels(last_concentration, forced_feed):
     global is_air
+    global oled
 
     if is_air == False:
         is_air = switch_pump(False)
+    
+    oled.displayPumpStatus(is_air)
+
     
     conc = odSensor.measureConcentration(last_concentration, forced_feed)
 
@@ -208,6 +214,7 @@ def feed_mussels(last_concentration, forced_feed):
         if utime.ticks_diff(utime.ticks_ms(), timeFeedingMussels) >= dT * 1000:
             print("[SYS] Finished feeding mussels !")
             is_air = switch_pump(True)
+            oled.displayPumpStatus(is_air)
             break
 
     return conc, dT
@@ -251,6 +258,7 @@ def stop_system():
     print("------------[SYS]--System stopped!!!!!!---------------")
 
 
+cooler.fanOn()
 
 initalTemperature = temperatureSensor.read_temp()
 initalActuatorValue = PID.update(initalTemperature)
@@ -267,6 +275,9 @@ last_concentration = conc
 
 
 aio.send_bulk({'desired-temperature': target_temperature})
+
+
+
 
 pump_air = False
 
@@ -309,7 +320,7 @@ while RUN:
         aio.send_bulk({'water-temperature': round(newTemp, 2)})
 
 
-        if display_data_counter == 30 or FORCED_FEED:
+        if display_data_counter == 30 or FORCED_FEED == True:
             display_data_counter = 0
             feedCounter += 1
             last_concentration = conc

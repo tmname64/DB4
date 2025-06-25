@@ -24,6 +24,16 @@ class OLED:
         self.oled.show()
         #self.oled.text('PID parameters: ' + parameters, 0, 24)
 
+    def displayPumpStatus(self, air):
+        if air:
+            self.oled.text('Pumping Air...', 0, 24)
+        else:
+            self.oled.text('Pumping Algae...', 0, 24)
+        
+        self.oled.show()
+
+
+
 
 """ >>> EXAMPLE USAGE <<<
 import ssd1306
